@@ -1,0 +1,19 @@
+# Simple Memory API - Requirements
+
+# Web Framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.12
+
+# Pydantic
+pydantic>=2.9.0
+
+# HTTP client (for Ollama API)
+requests>=2.31.0
+
+# ML / Embeddings
+numpy>=2.0.0
+fastembed>=0.7.0
+
+# Encryption (Fernet - symmetric AES-128)
+cryptography>=42.0.0

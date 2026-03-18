@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  # Memory API service
+  memory-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./db:/app/db
+      - ./models:/app/models
+      - ./logs:/app/logs
+    environment:
+      - DB_PATH=/app/db/memories.db
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  # Ollama service (optional - for Llama AI features)
+  # Remove this service if you don't want AI enhancements
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama-data:
