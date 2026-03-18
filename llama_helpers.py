@@ -126,6 +126,113 @@ def extract_keywords(text: str, max_keywords: int = 5) -> List[str]:
         return []
 
 
+def extract_entities_llm(text: str) -> List[Dict]:
+    """
+    Extract named entities from text using Llama (more accurate than regex).
+
+    Args:
+        text: Text to analyze
+
+    Returns:
+        List of dicts with 'text', 'type' (PERSON, ORG, LOCATION, etc.)
+    """
+    if not is_llama_available():
+        return []
+
+    system = "You extract named entities from text. Return only JSON."
+    prompt = f"""Extract named entities from this text and classify them.
+
+Text: {text}
+
+Return JSON format:
+{{
+  "entities": [
+    {{"text": "entity name", "type": "PERSON"}},
+    {{"text": "entity name", "type": "ORGANIZATION"}},
+    {{"text": "entity name", "type": "LOCATION"}}
+  ]
+}}
+
+Types: PERSON, ORGANIZATION, LOCATION, DATE, EMAIL, PHONE, URL, CONCEPT
+Only extract clearly identifiable entities."""
+
+    response = call_llama(prompt, system, temperature=0.1, max_tokens=500)
+
+    if not response:
+        return []
+
+    try:
+        # Parse JSON response
+        start = response.find('{')
+        end = response.rfind('}') + 1
+        if start != -1 and end > 0:
+            data = json.loads(response[start:end])
+            entities = data.get("entities", [])
+            # Normalize entity types
+            for e in entities:
+                if e.get('type'):
+                    e['type'] = e['type'].upper()
+            return entities
+    except Exception as e:
+        print(f"Failed to parse LLM entity response: {e}")
+
+    return []
+
+
+def extract_relationships_llm(text: str, entities: List[str]) -> List[Dict]:
+    """
+    Extract relationships between entities using Llama.
+
+    Args:
+        text: Text containing entities
+        entities: List of entity names
+
+    Returns:
+        List of dicts with 'from', 'to', 'type' (e.g., WORKS_AT, LOCATED_IN)
+    """
+    if not is_llama_available() or len(entities) < 2:
+        return []
+
+    entity_list = ", ".join(entities[:10])  # Limit for context
+
+    system = "You extract relationships between entities. Return only JSON."
+    prompt = f"""Given this text, identify relationships between these entities: {entity_list}
+
+Text: {text}
+
+Return JSON format:
+{{
+  "relationships": [
+    {{"from": "Entity A", "to": "Entity B", "type": "WORKS_AT"}},
+    {{"from": "Entity C", "to": "Entity D", "type": "LOCATED_IN"}}
+  ]
+}}
+
+Relationship types: WORKS_AT, LOCATED_IN, OWNS, MANAGES, KNOWS, WORKS_WITH, PART_OF, CAUSES, LEADS_TO
+Only extract clear, explicit relationships."""
+
+    response = call_llama(prompt, system, temperature=0.1, max_tokens=500)
+
+    if not response:
+        return []
+
+    try:
+        start = response.find('{')
+        end = response.rfind('}') + 1
+        if start != -1 and end > 0:
+            data = json.loads(response[start:end])
+            relationships = data.get("relationships", [])
+            # Normalize relationship types
+            for r in relationships:
+                if r.get('type'):
+                    r['type'] = r['type'].upper()
+            return relationships
+    except Exception as e:
+        print(f"Failed to parse LLM relationship response: {e}")
+
+    return []
+
+
 def enhance_memory(content: str) -> Dict:
     """
     Enhance memory with optional AI-generated metadata.
