@@ -187,15 +187,63 @@ def search_memories(
     return [MemoryResponse(**r) for r in results]
 
 
+@app.post("/memories/search/graph", response_model=List[MemoryResponse])
+def graph_enhanced_search(
+    request: MemorySearchRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Knowledge Graph RAG search combining vector similarity, entity matching, and graph expansion.
+
+    This uses a hybrid approach:
+    - 60% vector semantic search
+    - 40% entity-based retrieval
+    - Graph relationships for context expansion
+
+    Best for queries involving entities (people, places, organizations, etc.)
+    """
+    results = db.graph_enhanced_search(user_id, request.query, request.top_k)
+    return [MemoryResponse(**r) for r in results]
+
+
+@app.post("/memories/search/entities", response_model=List[MemoryResponse])
+def search_by_entities(
+    request: MemorySearchRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Entity-centric search.
+
+    Extracts entities from query, finds matching entities in the knowledge graph,
+    then retrieves memories containing those entities.
+    """
+    results = db.search_by_entities(user_id, request.query, request.top_k)
+    return [MemoryResponse(**r) for r in results]
+
+
 @app.get("/stats")
 def get_stats(user_id: str = Depends(get_current_user)):
     """Get statistics for the current user."""
     total_memories = db.count_memories(user_id)
+    entities = db.get_all_entities(user_id, limit=1000)
+    total_entities = len(entities)
+
+    # Count by entity type
+    entity_types = {}
+    for entity in entities:
+        etype = entity.get('entity_type', 'UNKNOWN')
+        entity_types[etype] = entity_types.get(etype, 0) + 1
 
     return {
         "user_id": user_id,
         "total_memories": total_memories,
-        "llama_available": is_llama_available()
+        "total_entities": total_entities,
+        "entity_types": entity_types,
+        "llama_available": is_llama_available(),
+        "knowledge_graph": {
+            "enabled": True,
+            "entity_extraction": "active"
+        }
     }
 
 
@@ -290,6 +338,92 @@ def get_memory_graph(
         raise HTTPException(status_code=404, detail="Memory not found")
 
     return graph
+
+
+# ===== Knowledge Graph / Entity Endpoints =====
+
+@app.get("/entities")
+def get_all_entities(
+    limit: int = Query(100, ge=1, le=500),
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get all entities extracted from user's memories.
+
+    Returns entities sorted by mention count (most frequently mentioned first).
+    """
+    entities = db.get_all_entities(user_id, limit)
+    return {
+        "entities": entities,
+        "total": len(entities)
+    }
+
+
+@app.get("/entities/{entity_id}/memories")
+def get_entity_memories(
+    entity_id: int,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get all memories containing a specific entity.
+
+    Useful for finding all references to a person, organization, place, etc.
+    """
+    memories = db.get_entity_memories(entity_id, user_id)
+
+    if not memories or not memories[0]:
+        raise HTTPException(status_code=404, detail="Entity not found or no memories associated")
+
+    return {
+        "entity_id": entity_id,
+        "memories": memories,
+        "total": len(memories)
+    }
+
+
+@app.get("/entities/{entity_id}/graph")
+def get_entity_graph(
+    entity_id: int,
+    depth: int = Query(1, ge=1, le=3, description="Graph traversal depth (1-3)"),
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get the entity relationship graph around a specific entity.
+
+    Shows related entities connected through CO_OCCURS relationships.
+    Returns nodes (entities) and edges (relationships) for visualization.
+    """
+    graph = db.get_entity_graph(entity_id, user_id, depth)
+
+    if not graph:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    return graph
+
+
+@app.get("/memories/{memory_id}/entities")
+def get_memory_entities(
+    memory_id: int,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get all entities mentioned in a specific memory.
+
+    Shows what entities (people, places, organizations, etc.) are referenced
+    in the memory content.
+    """
+    # Verify memory exists
+    memory = db.get_memory(memory_id, user_id)
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    entities = db.get_memory_entities(memory_id, user_id)
+
+    return {
+        "memory_id": memory_id,
+        "entities": entities,
+        "total": len(entities)
+    }
 
 
 if __name__ == "__main__":
